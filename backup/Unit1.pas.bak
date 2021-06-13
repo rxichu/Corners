@@ -1,0 +1,667 @@
+unit Unit1;
+
+{$MODE Delphi}
+
+interface
+
+uses
+  LCLIntf, LCLType, LMessages, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
+  Dialogs, Menus, StdCtrls, ExtCtrls;
+
+type
+
+
+  { TForm1 }
+
+  TForm1 = class(TForm)
+    Button2: TButton;
+    Button3: TButton;
+    MainMenu1: TMainMenu;
+    N1: TMenuItem;
+    N2: TMenuItem;
+    N3: TMenuItem;
+    N5: TMenuItem;
+    Button1: TButton;
+    Edit1: TEdit;
+    Edit2: TEdit;
+    Label1: TLabel;
+    Label2: TLabel;
+    Label3: TLabel;
+    Label4: TLabel;
+    Lstate: TLabel;
+    procedure Button2Click(Sender: TObject);
+    procedure Button3Click(Sender: TObject);
+    procedure CheckAutoChange(Sender: TObject);
+    procedure N4Click(Sender: TObject);
+    procedure N5Click(Sender: TObject);
+    procedure N3Click(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+    procedure StrategNapad1;
+    procedure StrategNapad2;
+    procedure StrategZashit1;
+    procedure StrategZashit2;
+    procedure Button1Click(Sender: TObject);
+    procedure PoleClik(Sender: TObject);
+    procedure N2Click(Sender: TObject);
+  private
+     procedure Draw;
+     procedure run;
+    { Private declarations }
+  public
+    { Public declarations }
+  end;
+
+// Матрица весов для сатрицы 6*6  Чем меньше значение
+// тем более желанное положение
+const wes6:array [0..5,0..5] of Integer =
+     (
+       (01, 00, 03,  00, 15, 00),
+       (00, 02, 00,  08, 00, 16),
+       (03, 00, 03,  00, 10, 00),
+
+       (00, 08, 00,  14, 00, 16),
+       (15, 00, 10,  00, 15, 00),
+       (00, 16, 00,  16, 00, 16)
+     );
+
+// тоже для 8*8
+const wes8:array [0..7,0..7] of Integer =
+     (
+       (01, 00, 03, 00,  15, 00, 17, 00),
+       (00, 02, 00, 04,  00, 16, 00, 18),
+       (03, 00, 03, 00,  15, 00, 17, 00),
+       (00, 04, 00, 04,  00, 06, 00, 18),
+
+       (15, 00, 15, 00,  15, 00, 17, 00),
+       (00, 16, 00, 16,  00, 16, 00, 18),
+       (17, 00, 17, 00,  17, 00, 17, 00),
+       (00, 18, 00, 18,  00, 18, 00, 18)
+     );
+     MAXLEVEL =4; //максимальная глубина рекурсии
+type int=ShortInt;
+     DoskArr=array[0..7,0..7] of Int; {массив описывающий доску}
+
+     stepinf =record // информация о найденном ходе
+       fi,fj,ti,tj:int; // координаты откуда и куда
+     end;
+
+
+  tStrategMode = (Defense,Attack,User); // тип стратегии - защита, нападение, играет игрок
+
+
+var
+  Form1: TForm1;
+  B: array of array of TPanel;
+  Doska, tmpa:DoskArr; // текущая и временная доски
+  mode: array[1..2] of  tStrategMode;    // две стратегии у каждого из игроков
+  curgamer:int;     // текущий игрок
+  UserModeStep:Integer; // шаг выбора хода пользователя
+  UserStep :stepinf;    // откуда куда ходит пользователь
+  activegame : Boolean = False; // игра активна
+
+implementation
+uses Unit2, Unit3, Unit5;
+{$R *.lfm}
+
+function OtherGamer:int;
+begin
+  if curgamer=1 then result:=2 else result:=1; // смена пользователя
+
+end;
+
+
+procedure TForm1.N4Click(Sender: TObject);
+begin
+  Form2.ShowModal;
+ with Form2 do
+ begin
+   case Radio1.ItemIndex of
+    0: mode[1]:=Defense;
+    1: mode[1]:=Attack;
+    2: mode[1]:=User;
+   end;
+   case Radio2.ItemIndex of
+    0: mode[2]:=Defense;
+    1: mode[2]:=Attack;
+    2: mode[2]:=User;
+   end;
+ end;
+end;
+
+procedure TForm1.CheckAutoChange(Sender: TObject);
+begin
+
+end;
+
+procedure TForm1.Button2Click(Sender: TObject);
+begin
+ Form3.ShowModal;
+end;
+
+procedure TForm1.N5Click(Sender: TObject);
+begin
+  Form3.ShowModal;
+end;
+
+procedure TForm1.Button3Click(Sender: TObject);
+var i,j:integer;
+begin
+  for i:=0 to Length(b)-1 do
+    for j:=0 to Length(b)-1 do
+     if Assigned(b[i,j]) then b[i,j].Free;  // удаление памяти из под уже созданных ранее панелей
+
+  SetLength(B, razm,razm);
+  for i:=0 to (razm-1) do
+    for j:=0 to (razm-1) do
+    begin
+      B[i,j]:=TPanel.Create(Form1);
+      B[i,j].Parent:=Form1;
+      B[i,j].Width:=50;
+      B[i,j].OnClick := PoleClik;   // назначаем обработчик клика на панели
+      B[i,j].Tag := i; // сохраняем собственные координаты
+      B[i,j].HelpKeyword := IntToStr(j);
+      B[i,j].Height:=50;
+      B[i,j].Left:=50*(j+1);
+      B[i,j].Top:=50*(i+1);
+      Doska[i,j] := 0;   // внутренняя матрица
+      if (i<(razm/2)) and (j<(razm/2))and (((i mod 2 =0) and (j mod 2 =0)) or ((i mod 2 =1) and (j mod 2 =1))) then
+         begin
+          B[i,j].Color:=clTeal;
+          Doska[i,j] := 1;
+         end;
+      if (i>(razm/2-1)) and (j>(razm/2)-1)and (((i mod 2 =0) and (j mod 2 =0)) or ((i mod 2 =1) and (j mod 2 =1))) then
+          begin
+          B[i,j].Color:=clPurple;
+          Doska[i,j] := 2;
+          end;
+    end;
+//Button1.Visible:=True;
+curgamer := 2; // будет ходить первый игрок
+activegame := True; // игра началась
+// run; // запуск обработки состояний
+ mode[curgamer]:= User;
+ begin  // ход компьютра
+     Button1.Show; // иначе показать кнопку
+ end;    
+
+end;
+
+
+procedure TForm1.FormCreate(Sender: TObject);
+begin
+razm:=8;
+curgamer := 1;
+end;
+
+// Оценка ситуации на доске для одного из игроков
+// рассчитывается сумма оценок всех фишек.
+// чем меньше тем юлиже к выирышу
+function CalcWes(arr:DoskArr; main:int):Integer;
+var i,j,w,dr:integer;
+     fin:Boolean;
+ function wesij(i,j,p:int):Integer;   // вес одной фишки
+ begin                                // определяется по матрицам весов
+   if p=2 then    // для второго игрока
+   begin
+     if Razm=6 then Result:=wes6[i,j]  // для 6*6
+      else Result:=wes8[i,j];    // для 8*8
+   end else
+   begin   // для 1го игрока
+     if Razm=6 then Result:=wes6[5-i,5-j]  // матрицы отраженные
+      else Result:=wes8[7-i,7-j];
+   end;
+ end;
+begin
+  Result:=0;     // вес пока 0
+  for i:=0 to Razm-1 do // по всей матрице
+  for j:=0 to Razm-1 do
+  begin
+    if arr[i,j]<>main then Continue; // не своя фишка - пропуск
+    w:=wesij(i,j,main); // вес текущей фигуры
+    Inc(Result,w); // прибавить к результату
+  end;
+end;
+
+// Расчет нового положения фишки
+// i - линнии
+// j - колонки
+function NewXY(var i,j:int; // координаты
+                len:int;  // длина хода 1 или 2
+                l,t:Boolean // направление влево, вверх
+                ):Boolean;
+begin
+  if l then Dec(j,len) else Inc(j,len);  // изменение координат
+  if t then Dec(i,len) else Inc(i,len);
+
+  Result:=False;
+  if (i<0) or (j<0) then Exit;  // проверка на выход за диапазон доски
+  if (i>Razm-1) or (j>Razm-1) then Exit;
+  Result:=true;
+
+end;
+
+// проверка допустимости хода
+function ValidStep(arr:DoskArr; // доска
+                i,j, // откуда
+                ti,tj:int): // куда
+                Boolean;
+var x,y, mainnapr, back:int;
+ function Centr:Integer;  // для длинных ходов (через фигуру)
+    // возвращает координаты средней точки
+ begin
+   Result:= arr[ (i+ti)div 2, (j+tj) div 2];
+ end;
+begin
+ Result:=False;
+ if (arr[i,j]=1) then mainnapr:=1 else mainnapr:=2;
+ if (arr[i,j]=1) then back:=2 else back:=1;
+
+ if (i=ti) or (j=tj) then Exit; // ход по горизонтали или вертикали недопустим
+
+ Result:=true;
+   x:=i;y:=j;
+   if NewXY(x,y, 1, True,true) then       // влево вверх 1
+     if (arr[ti,tj]=0) and (mainnapr=2) and (x=ti) and (y=tj) then Exit;
+
+   x:=i;y:=j;
+   if NewXY(x,y, 1, False,true) then       // вправо ввех 1
+     if (arr[ti,tj]=0) and(x=ti) and (y=tj) then Exit;
+
+
+   x:=i;y:=j;
+   if NewXY(x,y, 1, True,false) then       // влево вниз  1
+     if (arr[ti,tj]=0) and (x=ti) and (y=tj) then Exit;
+
+   x:=i;y:=j;
+   if NewXY(x,y, 1, false,false) then       // впарво вниз  1
+     if (arr[ti,tj]=0) and (mainnapr=1) and (x=ti) and (y=tj) then Exit;
+
+ //////////
+   x:=i;y:=j;
+   if NewXY(x,y, 2, True,true) then       // влево вверх 2
+     if mainnapr=2 then
+     if (arr[ti,tj]=0) and (Centr<>0) and (x=ti) and (y=tj) then Exit
+     else
+     if (arr[ti,tj]=0) and (Centr=back) and (x=ti) and (y=tj) then Exit;
+
+   x:=i;y:=j;
+   if NewXY(x,y, 2, False,true) then       // вправо ввех 2
+     if (arr[ti,tj]=0) and (Centr<>0) and(x=ti) and (y=tj) then Exit;
+
+
+   x:=i;y:=j;
+   if NewXY(x,y, 2, True,false) then       // влево вниз  1
+     if (arr[ti,tj]=0)and (Centr<>0) and (x=ti) and (y=tj) then Exit;
+
+   x:=i;y:=j;
+   if NewXY(x,y, 2, false,false) then       // впарво вниз  2
+     if mainnapr=1 then
+     if (arr[ti,tj]=0) and (Centr<>0) and (x=ti) and (y=tj) then Exit
+     else
+     if (arr[ti,tj]=0) and (Centr=back) and (x=ti) and (y=tj) then Exit ;
+
+  Result:=False;
+
+end;
+
+
+procedure copyarr(from:DoskArr;var toc:DoskArr); {копирование массивов}
+var i,j:int;
+begin
+ for i:=0 to 7 do
+   for j:=0 to 7 do
+     toc[i,j]:=from[i,j];
+end;
+
+// провека выиграл ли игрок
+function Final(arr:DoskArr;main:int):boolean ;
+var i,j:integer;
+begin
+  Result:=false;
+ for i:=0 to razm-1 do      // по всей матрице
+   for j:=0 to razm-1 do
+   begin
+     if arr[i,j]<>main then Continue;
+     if main=1 then
+     begin      // выход если есть хоть одна фишка не на месте
+        if (i< Razm div 2)or(j< Razm div 2) then Exit
+     end
+     else
+        if (i> (Razm div 2)-1)or(j> (Razm div 2)-1) then Exit
+   end;
+
+
+  Result:=true;
+
+end;
+
+{поиск оптимального хода путем полного перебора}
+function  find(arr:DoskArr; // текущая игровая матрица
+                    main, // 1 или 2 - номер ходящего игрока
+                    level,maxlevel:int; // текущий и максимальный уровень
+                    napad:Boolean; // стратегия нападаения или защиты
+                    var stinf: stepinf  // информация о найденном ходе
+                    ):integer;
+var tmpa:DoskArr;
+ i,j,i1,j1,back:int;
+ min,tmp, cur,tt:Integer;
+ stinfo: stepinf;
+// mp:int=2;
+
+  procedure Updmin;    // сравнение с лучшим из найденных результатов
+  begin
+       if (tmp<=min) then  // если лучше
+       begin
+           min:=tmp;       //           , то сохранить этот ход
+           stinf.fi := i;  // сохранить откуда он сделан
+           stinf.fj := j;
+           stinf.ti := i1;  // и куда
+           stinf.tj := j1;
+       end;
+
+  end;
+begin
+  if main=1 then back :=2 else back:=1;
+  cur :=CalcWes(arr,main);   // вес текущего состояний
+  if cur =0 then // уже выиграл
+  begin
+    Result:=0; //выход с 0
+    Exit;
+  end;
+   if (level=maxlevel) and not napad THen  // защита на макс уровне
+   begin
+    Result:=cur*level; //выход с текущим весом
+    Exit;
+   end;
+  min := 2147483647; // заведомо большое число
+
+ for i:=0 to Razm-1 do  // обход вссех полей  откуда ходим
+ begin
+  for j:=0 to Razm-1 do
+  begin
+   if (arr[i,j]<>main) then continue; // ищем фигуру которой будем ходить
+   if (level=1) and(i=StrToInt(Form1.Edit1.Text)) and (j=StrToInt(Form1.Edit2.Text)) then
+   begin
+     tt:=tt+1;    //для отладки
+   end;
+
+   for i1:=0 to Razm-1 do
+   begin
+     for j1:=0 to Razm-1 do    // цикл поиска кординат куда можно ходить
+     begin
+       if (arr[i1,j1]<>0) then  continue; // где занято - нельзя
+       if not ValidStep(arr,i,j,i1,j1) then Continue; // ход недопустим - нельзя
+       copyarr(arr,tmpa); // копируем матрицу во врем массив
+       tmpa[i1,j1] := tmpa[i,j]; // делаем ход
+       tmpa[i,j] := 0;
+       if napad then // нападение
+       begin
+         tmp:=CalcWes(tmpa,main)*level; // считаем новый вес после этого хода  
+         // умножение на level сделано для того чтобы более предпочтительными 
+         // были ходы которые улучшают ситуацию за меньшее количество ходов
+         // иначе противник меняет ситуацию и комп в конце игры начинает тупить
+
+         Updmin; // обновить лучший результат
+
+         if level<maxlevel then // если не на самом глубоком уровне
+         begin
+           // вызов рекурсивно для поиска следующего хода
+           tmp := find(tmpa,main,level+1,maxlevel,napad,stinfo);
+           //  в новой мотрице. на новом уровне.
+           Updmin; //обновить
+         end;
+       end else  // защита
+       begin
+          // здесь ищем такой из своиз ходов, при котором
+          // у противника будет самый плохой результат
+          // тоесть запомнить с максимальным значением
+         if level<maxlevel then
+         begin
+           tmp := -find(tmpa,back,level+1,maxlevel,true,stinfo);
+           Updmin; // обновить
+         end;
+       end;
+     end
+   end
+  end
+ end;
+ find := min; // вернуть что получилось
+end;
+
+
+procedure TForm1.StrategNapad1;
+var stinfo: stepinf;
+begin
+  stinfo.fi :=-1;   // флаг того что ход не найден
+  // запуск
+  find(doska, // игровая матрица
+                1, //номер игрока
+                1, // начинаем всегда с 1го уровня
+                MAXLEVEL, // всего уровней
+                True, // стратегия нападения
+                stinfo); // сюда будет помещен результат
+  if Final(Doska,1) then  // а не выиграл ли игрок
+  begin
+    Button1.Visible:=False;
+    MessageDlg('Игрок 1 выиграл', mtInformation, [mbOK], 0);
+    activegame:=False;
+    Exit;
+  end;
+  if stinfo.fi =-1 then             // есть ли ход
+  begin
+    MessageDlg('Нет доступных ходов', mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  with stinfo do   // сделать ход
+  begin
+    doska[ti,tj ] :=doska[fi,fj ];
+    doska[fi,fj ] :=0;
+  end;
+  Draw;    //выовд на экран
+  ////
+end;
+
+procedure TForm1.StrategNapad2;
+var stinfo: stepinf;
+begin
+  stinfo.fi :=-1;
+  find(doska,2,1,MAXLEVEL,True,stinfo);    // для второго игрока
+  if Final(Doska,2) then
+  begin
+    Button1.Visible:=False;
+    MessageDlg('Игрок 2 выиграл', mtInformation, [mbOK], 0);
+    activegame:=False;
+    Exit;
+  end;
+  if stinfo.fi =-1 then
+  begin
+    MessageDlg('Нет доступных ходов', mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  with stinfo do
+  begin
+    doska[ti,tj ] :=doska[fi,fj ];
+    doska[fi,fj ] :=0;
+  end;
+  Draw;
+  //  стратегия нападения
+end;
+
+procedure TForm1.StrategZashit1;  // защита для первого
+var stinfo: stepinf;
+begin
+  stinfo.fi :=-1;
+  find(doska,1,1,MAXLEVEL,false,stinfo);
+  if Final(Doska,1) then
+  begin
+    Button1.Visible:=False;
+    MessageDlg('Игрок 1 выиграл', mtInformation, [mbOK], 0);
+    activegame:=False;
+    Exit;
+  end;
+  if stinfo.fi =-1 then
+  begin
+    MessageDlg('Нет доступных ходов', mtError, [mbOK], 0);
+    activegame:=False;
+    Exit;
+  end;
+
+  with stinfo do
+  begin
+    doska[ti,tj ] :=doska[fi,fj ];
+    doska[fi,fj ] :=0;
+  end;
+  Draw;
+  ////
+end;
+
+procedure TForm1.StrategZashit2;  // защита для второго
+
+var stinfo: stepinf;
+begin
+  stinfo.fi :=-1;
+  find(doska,2,1,MAXLEVEL,false,stinfo);
+  if Final(Doska,2) then
+  begin
+    Button1.Visible:=False;
+    MessageDlg('Игрок 1 выиграл', mtInformation, [mbOK], 0);
+    Exit;
+  end;
+  if stinfo.fi =-1 then
+  begin
+    MessageDlg('Нет доступных ходов', mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  with stinfo do
+  begin
+    doska[ti,tj ] :=doska[fi,fj ];
+    doska[fi,fj ] :=0;
+  end;
+  Draw;  //  стратегия защиты
+end;
+procedure TForm1.Button1Click(Sender: TObject);
+begin
+ run;
+end;
+
+
+
+procedure TForm1.Draw; // из матрицы на экран
+var i,j:integer;
+
+begin
+  for i:=0 to (razm-1) do
+    for j:=0 to (razm-1) do // по всей матрице
+    begin
+      case Doska[i,j]  of  // установка цветов панелей
+       0: B[i,j].Color:= clBtnFace;
+       1: B[i,j].Color:= clTeal;
+       2: B[i,j].Color:= clPurple;
+      end;
+    end;
+    // для отладки - текущие веса игроков
+  label2.Caption:=IntToStr(CalcWes(Doska,1));
+  label3.Caption:=IntToStr(CalcWes(Doska,2));
+    
+end;
+
+procedure TForm1.run;  // обработка состояний здесь
+begin
+  if not activegame then Exit; // выход если игра не активна
+  case mode[curgamer] of // по стратегии текущего игрока
+    Attack:begin // нападение
+             if curgamer=1 then StrategNapad1 else StrategNapad2; // авто наподение
+           end;
+    Defense:begin // защита
+             if curgamer=1 then StrategZashit1 else StrategZashit2; // авто защита
+           end;
+    User : begin // ход игрока
+              Button1.Hide;   // кнопку спрятать
+              UserModeStep:=1; // шаг 1
+              Lstate.Caption := 'Ход пользователя. Выберите шашку для хода';
+              Lstate.Show; // подсказку показать
+              Exit; // выход
+           end;
+
+  end;
+  if curgamer=1 then curgamer:=2 else curgamer:=1; // смена пользователя
+  if mode[curgamer]=User then run // если ход игрока - обработать правила
+   else begin  // ход компьютра
+     Button1.Show; // иначе показать кнопку
+
+     begin
+       Application.ProcessMessages;
+       Button1Click(nil);
+     end;
+  end; 
+end;
+
+
+procedure TForm1.PoleClik(Sender: TObject); // клик на шашке
+var i,j:integer;
+begin
+   if not activegame then Exit;  // не активная игра - выход
+  if  mode[curgamer]<>User then Exit; // текущий игрок не юзер - выход
+  i:=TPanel(Sender).Tag;
+  j:=StrToInt(TPanel(Sender).HelpKeyword); // выделяем координаты поля
+
+  if   Doska[i,j]=curgamer then // кликнуто на своей фигуре
+  begin
+    UserModeStep:=2; // режим 2
+    UserStep.fi:=i;  // сохраняем стартовые координаты
+    UserStep.fj:=j;
+    Lstate.Caption := format('Ход из %d:%d в ... выберите место куда ходить',[i,j])
+  end;
+
+
+  if (UserModeStep=2) and  (Doska[i,j]=0) then   // режим 2 и кликнуто на пустом месте
+  begin
+         UserStep.ti:=i;
+         UserStep.tj:=j;
+         with UserStep do
+         if ValidStep(Doska,fi,fj,ti,tj) then // если ход допустим
+         begin
+            Doska[ti,tj]:=Doska[fi,fj];
+            Doska[fi,fj]:=0; // делаем ход
+            Draw(); // вывод
+            if Final(Doska,curgamer) then // проверка на выигрыш
+            begin
+              Button1.Visible:=False;
+              MessageDlg(format('Игрок %d выиграл!',[curgamer]), mtInformation, [mbOK], 0);
+              Lstate.hide;
+              activegame:=False;      // конец игры
+              Exit;
+            end;
+            UserModeStep:=0;
+            if curgamer=1 then curgamer:=2 else curgamer:=1; // смена игрока
+            Lstate.hide;
+            if mode[curgamer]=User then run else
+            begin
+                Button1.Show;
+                begin
+                  Application.ProcessMessages;
+                  Sleep(300);
+                  Application.ProcessMessages;
+                  Button1Click(nil);
+                end;
+
+            end;
+
+
+         end;
+       end;
+
+end;
+
+
+procedure TForm1.N2Click(Sender: TObject);
+begin
+ Close;
+end;
+
+
+
+end.
